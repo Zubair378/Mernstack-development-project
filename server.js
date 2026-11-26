@@ -138,7 +138,12 @@ app.get('/api/events/:id/seats', async (req, res, next) => {
     const expired = await Seat.find({ event: req.params.id, status: 'held', holdUntil: { $lte: new Date() } });
     for (const seat of expired) await releaseExpired(seat);
     const seats = await Seat.find({ event: req.params.id }).sort({ row: 1, number: 1 }).lean();
-    res.json({ holdSeconds: HOLD_MS / 1000, seats: seats.map(publicSeat) });
+    let viewer = null;
+    const auth = /^Bearer (.+)$/.exec(req.get('authorization') || '');
+    if (auth) { try { viewer = jwt.verify(auth[1], process.env.JWT_SECRET).id; } catch {} }
+    res.json({ holdSeconds: HOLD_MS / 1000, seats: seats.map(seat => ({
+      ...publicSeat(seat), mine: Boolean(viewer && String(seat.heldBy) === viewer)
+    })) });
   } catch (err) { next(err); }
 });
 app.post('/api/seats/:id/hold', authenticate, customerOnly, async (req, res, next) => {
