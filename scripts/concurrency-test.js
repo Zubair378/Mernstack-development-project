@@ -1,4 +1,5 @@
 // Run against a local development server, never production: creates test accounts and an event.
+require('dotenv').config();
 const base = process.env.API_URL || 'http://127.0.0.1:3001';
 const run = Date.now() + '-' + Math.random().toString(36).slice(2);
 async function request(path, method = 'GET', body, token) {
@@ -23,9 +24,14 @@ async function account(role, index) {
   const event = await request('/api/events', 'POST', { title: 'Concurrency test ' + run,
     date: '2030-01-01T12:00:00Z', rows: 1, seatsPerRow: 5 }, organizer);
   if (event.status !== 201) throw new Error('Event creation failed: ' + JSON.stringify(event));
+  const unauthorized = await request('/api/events', 'POST', { title: 'Denied', date: '2030-01-01T12:00:00Z', rows: 1, seatsPerRow: 1 }, customers[0]);
+  if (unauthorized.status !== 403) throw new Error('Customer event creation must be forbidden.');
   const map = await request('/api/events/' + event.data._id + '/seats');
   if (map.status !== 200 || map.data.seats.length !== 5) throw new Error('Seat grid was not created.');
   const seatId = map.data.seats[0].id;
+  const organizerHold = await request('/api/seats/' + seatId + '/hold', 'POST', {}, organizer);
+  if (organizerHold.status !== 403) throw new Error('Organizer seat holding must be forbidden.');
+  console.log('Role restrictions: customer event creation and organizer hold rejected');
   const results = await Promise.all(customers.map(token => request('/api/seats/' + seatId + '/hold', 'POST', {}, token)));
   const winners = results.map((r, i) => r.status === 200 ? i : -1).filter(i => i >= 0);
   const conflicts = results.filter(r => r.status === 409).length;
